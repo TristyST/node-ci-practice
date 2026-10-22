@@ -1,5 +1,5 @@
 
-name: Node.js CI
+name: Node.js CI/CD
 
 on:
   push:
@@ -9,6 +9,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    env:
+      EC2_DEPLOY_ENABLED: ${{ vars.EC2_DEPLOY_ENABLED }}
 
     steps:
       - name: Checkout repository
@@ -31,3 +34,51 @@ jobs:
           name: node-build
           path: dist/index.html
           if-no-files-found: error
+
+      # Step 1: Decode the SSH key
+      - name: Decode EC2 SSH key
+        if: ${{ env.EC2_DEPLOY_ENABLED == 'true' }}
+        env:
+          EC2_SSH_KEY_B64: ${{ secrets.EC2_SSH_KEY_B64 }}
+          EC2_KEY_PATH: ${{ runner.temp }}/ec2_key
+        run: |
+          if [ -z "$EC2_SSH_KEY_B64" ]; then
+            echo "EC2_SSH_KEY_B64 secret is missing."
+            exit 1
+          fi
+          printf '%s' "$EC2_SSH_KEY_B64" | base64 --decode > "$EC2_KEY_PATH"
+          chmod 600 "$EC2_KEY_PATH"
+
+      # Step 2: Copy the built file to EC2
+      - name: Copy files to EC2
+        if: ${{ env.EC2_DEPLOY_ENABLED == 'true' }}
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_KEY_PATH: ${{ runner.temp }}/ec2_key
+        run: |
+          if [ -z "$EC2_HOST" ] || [ -z "$EC2_USER" ]; then
+            echo "EC2_HOST or EC2_USER secret is missing."
+            exit 1
+          fi
+          scp -i "$EC2_KEY_PATH" \
+            -o StrictHostKeyChecking=accept-new \
+            dist/index.html \
+            "$EC2_USER@$EC2_HOST:/tmp/index.html"
+
+      # Step 3: Configure and start the web server
+      - name: Deploy application on EC2
+        if: ${{ env.EC2_DEPLOY_ENABLED == 'true' }}
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_KEY_PATH: ${{ runner.temp }}/ec2_key
+        run: |
+          ssh -i "$EC2_KEY_PATH" \
+            -o StrictHostKeyChecking=accept-new \
+            "$EC2_USER@$EC2_HOST" \
+            'sudo apt-get update &&
+             sudo apt-get install -y nginx &&
+             sudo install -m 644 /tmp/index.html /var/www/html/index.html &&
+             sudo systemctl enable --now nginx &&
+             rm -f /tmp/index.html'
