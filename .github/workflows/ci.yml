@@ -1,3 +1,4 @@
+
 name: Node.js CI/CD
 
 on:
@@ -57,6 +58,39 @@ jobs:
 
           echo "Checking Docker Engine..."
           docker version
+
+      - name: Validate Docker Hub credentials
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          echo "Checking username..."
+          if printf '%s' "$DOCKERHUB_USERNAME" | grep -Eq '^[a-z0-9][a-z0-9_.-]{0,127}$'; then
+            echo "Username format: OK"
+          else
+            echo "Username format: INVALID"
+          fi
+
+          echo "Checking token..."
+          if [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "Token: MISSING"
+          else
+            echo "Token: PRESENT"
+          fi
+
+          if printf '%s' "$DOCKERHUB_TOKEN" | grep -q '[[:space:]]'; then
+            echo "Token whitespace: FOUND"
+          else
+            echo "Token whitespace: NONE"
+          fi
+
+          case "$DOCKERHUB_TOKEN" in
+            dckr_pat_*) echo "Token prefix: EXPECTED" ;;
+            *) echo "Token prefix: UNEXPECTED" ;;
+          esac
+
+          echo "Checking Docker Hub authentication challenge..."
+          curl -sS -D - -o /dev/null https://registry-1.docker.io/v2/ | grep -iE '^(HTTP/|www-authenticate:|docker-distribution-api-version:)'
 
       - name: Login to Docker Hub
         env:
