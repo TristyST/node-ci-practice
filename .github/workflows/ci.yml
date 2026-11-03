@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -35,7 +38,37 @@ jobs:
           path: dist/index.html
           if-no-files-found: error
 
-      # Step 1: Decode the SSH key
+      # Docker setup
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/ci-node-demo
+          tags: |
+            type=ref,event=branch
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # EC2 deployment (optional)
       - name: Decode EC2 SSH key
         if: ${{ env.EC2_DEPLOY_ENABLED == 'true' }}
         env:
@@ -49,7 +82,6 @@ jobs:
           printf '%s' "$EC2_SSH_KEY_B64" | base64 --decode > "$EC2_KEY_PATH"
           chmod 600 "$EC2_KEY_PATH"
 
-      # Step 2: Copy the built file to EC2
       - name: Copy files to EC2
         if: ${{ env.EC2_DEPLOY_ENABLED == 'true' }}
         env:
@@ -66,7 +98,6 @@ jobs:
             dist/index.html \
             "$EC2_USER@$EC2_HOST:/tmp/index.html"
 
-      # Step 3: Configure and start the web server
       - name: Deploy application on EC2
         if: ${{ env.EC2_DEPLOY_ENABLED == 'true' }}
         env:
