@@ -42,6 +42,23 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+            - name: Diagnose Docker Hub connectivity
+        run: |
+          echo "Checking proxy environment..."
+          for name in HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy; do
+            if printenv "$name" > /dev/null; then
+              echo "$name is set"
+            else
+              echo "$name is not set"
+            fi
+          done
+
+          echo "Checking Docker Hub registry..."
+          curl -sS -o /dev/null -w "HTTP status: %{http_code}\n" https://registry-1.docker.io/v2/
+
+          echo "Checking Docker Engine..."
+          docker version
+
       - name: Login to Docker Hub
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
